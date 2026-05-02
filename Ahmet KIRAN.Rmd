@@ -1,0 +1,299 @@
+---
+title: "Ahmet KIRAN"
+date: "`r Sys.Date()`" # Tarihi otomatik olarak o günün tarihi yapar
+output: 
+  html_document:
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,          
+  warning = FALSE,      
+  message = FALSE,      
+  fig.align = "center", 
+  fig.width = 8,        
+  fig.height = 5        
+)
+```
+
+# 1. TGSS2024 Anket Verileri
+
+Bu veri seti sav formatında olup 2615 satır ve 674 değişken içeren gözlemlerden oluşmaktadır. TGSS,Türkiye'deki genç nüfusun sosyal, ekonomik ve kültürel eğilimlerini anlamak amacıyla yürütülen bir çalışmadır.Bu paylaşım, R Studio platformunda bir veri setinin analiz sürecinde tidyverse, foreign ve haven başta olmak üzere kullanılan kütüphane ve kodları içermektedir.Bir alıştırma uygulaması olmasının yanı sıra toplumdaki cinsiyet, fırsat eşitliği ve istihdam arasındaki ilişkileri analiz etme amacı güdülmüştür.
+
+# 2. Verinin Yüklenmesi, Temizlik ve Kütüphaneler
+
+Veri setimiz R'nin default kütüphanesindeki kodlar ile okunmadığından ilk olarak kütüphanelerimizi kuruyoruz.
+
+```{r}
+library(haven)
+library(tidyverse)
+library(foreign)
+library(doParallel)
+corenum <- detectCores() - 1
+doParallel::registerDoParallel(corenum)
+setwd("~/AllProjects/R_ile_veri_analizi")
+tgss <- read.spss("TGSS2024.sav", to.data.frame = TRUE)
+
+```
+
+Veri setimiz çok büyük olduğu için analizimiz için kullanacağımız değişkenleri ele alalım ve NA değerlerini verimizden kaldıralım.(Bu çalışmada bir satırda bile NA değeri varsa o satırdaki veriyi örneklemimizden çıkardık.Kullanacağımız satırlarda NA değerlerinin bulunup bulunmadığına göre filtreleyip örneklemi daha büyük olacak şekilde de kullanabilirdik.)
+
+```{r}
+data <- tgss %>%
+select(empstat,gender,educ,age,degurba,marital)
+
+data_temiz <- data %>% 
+drop_na()
+```
+
+Seçtiğimiz değişkenler faktörlere ayrılmış veriler olduğu için bu verileri kendi dilimize göre sınıflandırmak için ordered fonksiyonunu kullanacağız.Bazı değişkenler çok fazla faktöre sahip olduğundan tek bir başlık altında toplandı.
+
+```{r}
+levels(data_temiz$empstat)
+levels(data_temiz$gender)
+levels(data_temiz$educ)
+levels(data_temiz$age)
+levels(data_temiz$degurba)
+levels(data_temiz$marital)
+
+levels(data_temiz$empstat) <- c(
+"Calisiyor","Ogrenci","Calismiyor","Calismiyor","Hasta/Engelli","Emekli","Asker","Calismiyor","Diger")
+
+levels(data_temiz$educ) <-  c(
+  "Yok","Ilkokul","Ortaokul","Lise","Onlisans","Lisans","LisansUstu","Doktora")
+
+data_temiz$educ <-  ordered(data_temiz$educ, levels = c("Yok","Ilkokul","Ortaokul","Lise","Onlisans","Lisans","LisansUstu","Doktora"))
+
+#Yaş değerlerimizi faktörlerden değerlere dönüştürüp ardından aralıklara bölüyoruz.
+#Bunun nedeni çalışma oranlarının yaş aralıklarına göre dağılımını inceleyecek olmamız.
+data_temiz$age <- as.numeric(as.character(data_temiz$age))
+data_temiz$age <- cut(data_temiz$age, breaks = c(14,24,44,64,120), labels = c("15-24","25-44","45-64","65+"))
+
+levels(data_temiz$degurba) <- c("Kirsal","OrtaYogunKent","YogunKent")
+
+levels(data_temiz$marital) <- c("Bekar","Evli","Evli","Bekar","Bosandi","Dul")
+```
+
+#3.Tek-İki Değişkenli Görseller ve Çıkarımlar
+
+Bu kısımda düzenlediğimiz ve temizlediğimiz veri setinin dağılımlarını ggplot2 kütüphanesi yardımıyla grafiklere ve görselliğe dökeceğiz.
+
+```{r echo=FALSE}
+#Cinsiyet, Medeni Durum,Eğitim, Yaş ve Yaşam alanı dağılımları
+summary(data_temiz$gender)
+summary(data_temiz$age)
+summary(data_temiz$marital)
+summary(data_temiz$degurba)
+summary(data_temiz$educ)
+
+```
+
+
+
+##Cinsiyete Göre İstihdam Durum Grafiği
+
+Bu grafikte erkek ve kadınların çalışma durumlarını inceliyor olacağız ve görmüş olacağız ki çalışmayan kadınların sayısı erkeklere oranla bir hayli yüksek. Sayıları küçük kod bloğu aracılığıyla görebiliriz.
+
+```{r}
+data_temiz %>%
+count(gender,empstat)
+```
+
+```{r}
+ggplot(data = data_temiz, aes(x = empstat, fill = gender)) +
+  geom_bar(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("Kadın" = "#FF9999", "Erkek" = "#66B2FF")) +
+  theme_minimal() +
+  labs(title = "Cinsiyete Gore Istihdam Durumu",
+       x = "Calisma Durumu", 
+       y = "Kisi Sayisi", 
+       fill = "Cinsiyet") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Eğitim Seviyesine Göre Çalışma Dağılım Grafiği
+
+Burada eğitim düzeylerinin cinsiyete göre dağılımını görüyor ve ardından da eğitim seviyesine bağlı olarak cinsiyete göre çalışma dağılımını inceliyor olacağız.
+```{r}
+data_temiz %>% 
+  count(educ,gender)
+```
+
+
+```{r}
+ggplot(data = data_temiz, aes(x = educ, fill = gender)) +
+  geom_bar(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("Kadın" = "#FF9999", "Erkek" = "#66B2FF")) +
+  theme_minimal() +
+  labs(title = "Cinsiyete Gore Egitim Seviyesi Dagilimi",
+       subtitle = "Kadın ve erkeklerin okuma duzeylerindeki sayisal karsilastirmasi",
+       x = "Eğitim Seviyesi", 
+       y = "Kişi Sayısı", 
+       fill = "Cinsiyet") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10))
+```
+
+```{r}
+data_temiz %>%
+  filter(empstat == "Calisiyor") %>%
+  ggplot(aes(x = educ, fill = gender)) +
+  geom_bar(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("Kadın" = "#FF9999", "Erkek" = "#66B2FF")) +
+  theme_minimal() +
+  labs(title = "Calisanlarin Egitim Seviyesine ve Cinsiyete Gore Dagilimi",
+       x = "Eğitim Seviyesi", 
+       y = "Çalışan Kişi Sayısı", 
+       fill = "Cinsiyet") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+##Çalışanların Medeni Durum ve Cinsiyete Göre Dağılım Grafiği
+
+Bu kısımda çalışan kişilerin cinsiyetlere dağılımını gösteriyor olacağız.
+```{r}
+data_temiz %>% 
+  filter(empstat == "Calisiyor") %>% 
+  count(marital,gender)
+```
+
+```{r}
+data_temiz %>%
+  filter(empstat == "Calisiyor") %>%
+  ggplot(aes(x = marital, fill = gender)) +
+  geom_bar(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("Kadın" = "#FF9999", "Erkek" = "#66B2FF")) +
+  theme_minimal() +
+  labs(title = "Calisanlarin Medeni Durum ve Cinsiyete Gore Dagilimi",
+       x = "Medeni Durum", 
+       y = "Çalışan Kişi Sayısı", 
+       fill = "Cinsiyet") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Eğer bu grafiği oranlamaya vurursak medeni duruma göre çalışma oranları aşağıdaki gibidir.
+```{r}
+data_temiz %>%
+  group_by(marital, gender) %>%
+  summarise(calisma_orani = sum(empstat == "Calisiyor") / n(), .groups = "drop")
+```
+
+##Yaşam Alanı ve Cinsiyete Göre İstihdam Oran Grafiği
+
+Bu kısımda çalışma durumunun kırsal ve ya kentsel alanlardaki değişimlerine bakacağız ve göreceğiz ki erkeklerin her kesimde kadınlara oranlara daha yüksek istihdam seviyelerine sahip.
+```{r}
+data_temiz %>% 
+   filter(empstat == "Calisiyor") %>%
+  count(gender,degurba,empstat)
+```
+
+
+```{r}
+data_temiz %>%
+  filter(empstat == "Calisiyor") %>% 
+  count(gender, degurba) %>%
+  group_by(gender) %>%
+  mutate(dagilim_orani = paste0("% ", round((n / sum(n)) * 100, 1))) %>% 
+  select(gender, degurba, dagilim_orani)
+```
+
+```{r}
+data_temiz %>%
+  group_by(degurba, gender) %>%
+  summarise(
+    calisma_orani_yuzde = paste0("% ", round((sum(empstat == "Calisiyor") / n()) * 100, 1)),
+    .groups = "drop"
+  )
+```
+
+```{r}
+data_temiz %>%
+  filter(empstat == "Calisiyor") %>%
+  count(gender, degurba) %>%
+  group_by(gender) %>%
+  ggplot(aes(x = degurba, y = n / sum(n), fill = gender)) +
+  geom_col(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("Kadın" = "#FF9999", "Erkek" = "#66B2FF")) +
+  scale_y_continuous(labels = scales::percent_format()) + 
+  theme_minimal() +
+  labs(title = "Calisanlarin Yasam Alanlarina Gore Dagilimi (%)",
+       x = "Yaşam Alanı (Kır/Kent)", 
+       y = "Kendi İçindeki Dağılım Oranı (%)", 
+       fill = "Cinsiyet") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+##Çalışanların Yaş ve Cinsiyete Göre Dağılım Grafiği
+
+Bu kısımda çalışan kişilerin yaş aralıklarına göre nasıl dağıldığına bakacağız.
+
+```{r}
+data_temiz %>%
+  count(age, gender) %>%
+  ggplot(aes(x = age, y = n, fill = gender)) +
+  geom_col(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("Kadın" = "#FF9999", "Erkek" = "#66B2FF")) +
+  theme_minimal() +
+  labs(title = "Yas Gruplarina ve Cinsiyete Gore Kisi Sayisi",
+       x = "Yaş Grubu", 
+       y = "Kişi Sayısı", 
+       fill = "Cinsiyet")
+```
+
+```{r}
+data_temiz %>%
+  filter(empstat == "Calisiyor") %>%
+  ggplot(aes(x = age, fill = gender)) +
+  geom_bar(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("Kadın" = "#FF9999", "Erkek" = "#66B2FF")) +
+  theme_minimal() +
+  labs(title = "Calisanlarin Yas Gruplarina ve Cinsiyete Gore Dagilimi",
+       subtitle = "Hangi yaş grubunda kac kadin ve erkek aktif olarak calisiyor?",
+       x = "Yaş Grubu", 
+       y = "Çalışan Kişi Sayısı", 
+       fill = "Cinsiyet")
+```
+
+```{r}
+data_temiz %>% 
+      filter(empstat != "Calisiyor") %>% 
+    filter(age=="25-44" | age=="45-64") %>% 
+  count(gender,age,marital)
+```
+
+# 4.Lojistik Regresyon Modeli 
+
+Bu kısımda lojistik regresyon modeli aracılığı ile çalışma durumunun diğer değişkenlere göre nasıl etkilendiğini göreceğiz.
+
+Bu kod bloğu ile calisiyor olarak görünmeyenleri binary modele yani 0 1 şekline getiriyoruz ki modelimiz çalışsın.
+
+##Modelin Kurulumu
+
+```{r}
+data_model <- data_temiz %>%
+ filter(empstat != "Diger") %>% 
+  mutate(hedef_calisiyor = as.integer(empstat == "Calisiyor"))
+
+istihdam_modeli <- glm(hedef_calisiyor ~ gender + educ + age + marital + degurba, 
+                       data = data_model, 
+                       family = "binomial")
+summary(istihdam_modeli)
+```
+Bu tablodaki bulgulara bakarak yaptığım çıkarımlardan bazılarını maddeler halinde eklemek istiyorum.
+
+## Modelin anlamlandırılması
+
+Başlamadan önce en sağda bulunan sütundaki değerlerin yanında yıldız bulunuyor ise bu demek oluyor ki sonuç güvenilirdir.
+Estimate (Katsayı) değeri + ise çalışma ihtimali artar - ise düşer. Şimdi çıkarımlara geçelim.
+
+1. Eğitimi, yaşı ve yaşadığı yer tamamen aynı olan bir kadının iş bulma ihtimali, bir erkeğin iş bulma ihtimalinden yaklaşık 2.7 kat daha düşüktür.[ e^(1.01) değeri yaklaşık 2.7ye tekabül etmektedir.]
+
+2.25-44 yaş aralığına baktığımız zaman çalışma oranının gayet yüksek olduğu gözüküyor. Yani 25-44 yaş aralığı çalışma ihtimali olarak en yüksek aralık.
+
+3.Ne kadar aksini düşünmüş olsam da Kırsalda yaşayanlara kıyasla,yoğun kentte yaşamak genel çalışma ihtimalini düşürüyor.
+
+4.Burada eğitim seviyesini sıraladığımız için model eğitim seviyesini Lineer(x^1), Quadratik(x^2) vb. olarak hesaplamıştır. Yani ğitim seviyesindeki her bir basamaklık artış, çalışma ihtimalini lineer olarak arttırmaktadır.
+
+5. Medeni duruma baktığımızda ise herhangi bir anlamlı ifade göremediğimizden dolayı. Evli ve ya Bekar olmanın bu örneklem üzerinde bir etkisi olmadığını söyleyebiliriz.
+
